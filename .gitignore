@@ -1,0 +1,53 @@
+# Build artifacts
+.build/
+build/
+*.zip
+bootstrap
+*/bootstrap
+*/*.zip
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+tfplan*
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment & Secrets
+.secrets
+.env
+.env.local
+.env.*.local
+
+# AWS
+.aws/

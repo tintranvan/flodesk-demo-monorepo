@@ -1,0 +1,64 @@
+name: api-svc-a
+type: api
+deployment: lambda
+stage: latest
+
+# Base configuration
+resources:
+  memory: 128
+  timeout: 30s
+  architecture: arm64
+
+routing:
+  - method: GET
+    path: /api-svc-a/health
+  - method: POST  
+    path: /api-svc-a/process
+
+# Environment-specific overrides
+environments:
+  dev:
+    resources:
+      provisioned_concurrency: 0
+    environment_variables:
+      LOG_LEVEL: debug
+      ENABLE_TRACING: "false"
+    
+  staging:
+    resources:
+      provisioned_concurrency: 2
+    environment_variables:
+      LOG_LEVEL: info
+      ENABLE_TRACING: "true"
+    
+  prod:
+    resources:
+      memory: 256
+      provisioned_concurrency: 5
+      reserved_concurrency: 100
+    environment_variables:
+      LOG_LEVEL: warn
+      ENABLE_TRACING: "true"
+
+# Secrets - auto-create with naming convention: ${environment}/${service-name}/${secret-name}
+secrets:
+  - db-password
+  - jwt-secret
+  - external-api-key
+
+# Events published by this API
+events:
+  publishes:
+    - task.created
+    - process.completed
+
+# EventBridge routing rules
+event_routing:
+  - event: task.created
+    targets:
+      - queue: worker-c-queue
+      - queue: worker-d-queue
+        
+  - event: process.completed
+    targets:
+      - queue: worker-c-queue
