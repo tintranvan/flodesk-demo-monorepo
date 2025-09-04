@@ -76,6 +76,9 @@ jobs:
         SERVICE_NAME: ${{ github.event.inputs.service_name }}
         ENVIRONMENT: ${{ github.event.inputs.environment }}
       run: |
+        # Copy zip file to terraform directory
+        cp .build/$SERVICE_NAME.zip cmd/$SERVICE_NAME/.terraform/
+        
         cd cmd/$SERVICE_NAME/.terraform
         terraform init
         terraform plan -out=tfplan
