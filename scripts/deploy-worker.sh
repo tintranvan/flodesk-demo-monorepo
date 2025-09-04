@@ -25,8 +25,12 @@ IMAGE_TAG="v$(date +%Y%m%d_%H%M%S)_$(git rev-parse --short HEAD 2>/dev/null || e
 REPO_NAME="$SERVICE-$ENVIRONMENT"
 ECR_URI="647272350116.dkr.ecr.us-east-1.amazonaws.com/$REPO_NAME"
 
-# Build and tag image for ARM64 from monorepo root
-docker build --platform linux/arm64 -f Dockerfile -t $SERVICE:$IMAGE_TAG ../../
+# Build and tag image using shared Dockerfile.worker
+docker build --platform linux/arm64 \
+  -f ../Dockerfile.worker \
+  --build-arg SERVICE_NAME=$SERVICE \
+  --build-arg TARGETARCH=arm64 \
+  -t $SERVICE:$IMAGE_TAG ../
 docker tag $SERVICE:$IMAGE_TAG $ECR_URI:$IMAGE_TAG
 docker tag $SERVICE:$IMAGE_TAG $ECR_URI:latest
 

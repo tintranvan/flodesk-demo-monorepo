@@ -2,6 +2,7 @@ name: worker-c
 type: worker
 deployment: ecs
 stage: latest
+infra_tag: main # Could be at version
 
 # Base configuration
 resources:
