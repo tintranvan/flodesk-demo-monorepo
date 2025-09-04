@@ -90,6 +90,16 @@ jobs:
         SERVICE_NAME: ${{ github.event.inputs.service_name }}
         ENVIRONMENT: ${{ github.event.inputs.environment }}
       run: |
-        aws apigateway create-deployment \
-          --rest-api-id $(terraform output -raw api_gateway_id) \
-          --stage-name latest
+        cd cmd/$SERVICE_NAME/.terraform
+        
+        # Get API Gateway ID from terraform output
+        API_GATEWAY_ID=$(terraform output -raw api_gateway_url | cut -d'/' -f3 | cut -d'.' -f1)
+        
+        if [ -n "$API_GATEWAY_ID" ]; then
+          aws apigateway create-deployment \
+            --rest-api-id $API_GATEWAY_ID \
+            --stage-name latest
+          echo "✅ API Gateway deployed"
+        else
+          echo "⚠️ API Gateway ID not found, skipping deployment"
+        fi
