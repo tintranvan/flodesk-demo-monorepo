@@ -23,7 +23,7 @@ type Message struct {
 }
 
 func main() {
-	log.Println("🚀 Starting Worker-C...")
+	log.Println("🚀 Starting Worker-D...")
 
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(context.TODO())
@@ -63,7 +63,7 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("✅ Worker-C stopped gracefully")
+			log.Println("✅ Worker-D stopped gracefully")
 			return
 		default:
 			processMessages(ctx, sqsClient, queueURL)

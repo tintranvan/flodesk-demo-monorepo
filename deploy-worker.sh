@@ -103,9 +103,9 @@ echo "✅ ECS deployment initiated"
 # Health check with rollback capability
 echo "🏥 Health check with rollback capability..."
 
-for i in {1..10}; do  # 5 minutes max
-    echo "  Health check attempt $i/10..."
-    sleep 30
+for i in {1..30}; do  # 5 minutes max (30 * 10s)
+    echo "  Health check attempt $i/30..."
+    sleep 10
     
     SERVICE_STATUS=$(aws ecs describe-services \
         --cluster $CLUSTER_NAME \
@@ -145,8 +145,8 @@ for i in {1..10}; do  # 5 minutes max
     fi
     
     # If this is the last attempt, prepare for rollback
-    if [ $i -eq 10 ]; then
-        echo "❌ Health check failed after 10 attempts"
+    if [ $i -eq 30 ]; then
+        echo "❌ Health check failed after 30 attempts"
         
         if [ ! -z "$PREVIOUS_TASK_DEF" ] && [ "$PREVIOUS_TASK_DEF" != "None" ]; then
             echo "🔄 Rolling back to previous task definition..."

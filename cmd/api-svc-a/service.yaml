@@ -14,6 +14,8 @@ routing:
     path: /api-svc-a/health
   - method: POST  
     path: /api-svc-a/process
+  - method: POST  
+    path: /api-svc-a/complete
 
 # Environment-specific overrides
 environments:
