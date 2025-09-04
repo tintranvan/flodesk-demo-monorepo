@@ -69,7 +69,7 @@ jobs:
         ENVIRONMENT: ${{ github.event.inputs.environment }}
       run: |
         cd flodesk-infra/scripts
-        python3 generate-api-infra.py $SERVICE_NAME $ENVIRONMENT
+        python3 generate-service-infra.py $SERVICE_NAME $ENVIRONMENT
         
     - name: Deploy infrastructure
       env:
@@ -79,7 +79,8 @@ jobs:
         cd cmd/$SERVICE_NAME/.terraform
         terraform init
         terraform plan -out=tfplan
-        terraform apply tfplan
+        terraform apply -auto-approve tfplan
+        echo "✅ Infrastructure deployed"
         
     - name: Deploy API Gateway
       env:
