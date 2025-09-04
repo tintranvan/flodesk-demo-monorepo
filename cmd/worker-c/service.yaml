@@ -1,0 +1,117 @@
+name: worker-c
+type: worker
+deployment: ecs
+stage: latest
+
+# Base configuration
+resources:
+  memory: 512
+  cpu: 256
+  desired_count: 1
+  max_count: 10
+
+# Deployment configuration
+deployment:
+  strategy: rolling_update  # or blue_green
+  minimum_healthy_percent: 0   # For workers: allow stopping all tasks
+  maximum_percent: 100         # Don't exceed desired count
+  health_check_grace_period: 30s
+
+# Queue configuration
+queues:
+  - name: worker-c-queue
+    criticality: critical
+    type: standard
+    dlq_retries: 3
+    visibility_timeout: 30s
+    message_retention: 14d
+
+# Auto-scaling configuration
+scaling:
+  # Priority-based multi-metric scaling (check từ trên xuống)
+  metrics:
+    - name: sqs_queue_depth       # Priority 1: Workload first
+      target_value: 5
+      action: scale_up_down
+      cooldown_up: 30s
+      cooldown_down: 300s
+      
+    - name: cpu_utilization       # Priority 2: Performance backup
+      target_value: 75
+      action: scale_up_only
+      cooldown_up: 60s
+      
+    - name: memory_utilization    # Priority 3: Safety net
+      target_value: 85
+      action: scale_up_only
+      cooldown_up: 30s
+  
+  # Circuit breaker for defensive scaling
+  circuit_breaker:
+    enabled: true
+    failure_threshold: 3        # 3 failed tasks liên tiếp
+    recovery_time: 180s         # 3 phút recovery
+    fallback_capacity: 1        # Scale down to 1 task khi fail
+    health_check_interval: 30s  # Check task health every 30s
+    failure_patterns:
+      - exit_code: [1, 2, 130]  # Non-zero exit codes
+      - health_check_failures: 3 # ECS health check fails
+      - oom_kills: 1            # Out of memory kills
+  
+
+# Environment-specific overrides
+environments:
+  dev:
+    resources:
+      desired_count: 1
+      max_count: 3
+    scaling:
+      metrics:
+        - name: sqs_queue_depth
+          target_value: 10      # Dev: relaxed scaling
+        - name: cpu_utilization
+          target_value: 80      # Dev: higher CPU threshold
+        - name: memory_utilization
+          target_value: 90      # Dev: higher memory threshold
+      circuit_breaker:
+        failure_threshold: 5    # Dev: more tolerant
+        recovery_time: 300s     # Dev: longer recovery
+    environment_variables:
+      LOG_LEVEL: debug
+      WORKER_INTERVAL: "30s"      # Slow down processing for testing
+      PROCESSING_DELAY: "10s"     # Add delay per message
+    
+  staging:
+    resources:
+      desired_count: 2
+      max_count: 5
+    scaling:
+      target_value: 8
+    environment_variables:
+      LOG_LEVEL: info
+      WORKER_INTERVAL: "5s"
+    
+  prod:
+    resources:
+      memory: 1024
+      cpu: 512
+      desired_count: 3
+      max_count: 50  # Tăng max để handle burst
+    scaling:
+      metrics:
+        - name: sqs_queue_depth
+          target_value: 2       # Prod: aggressive scaling
+        - name: cpu_utilization
+          target_value: 70      # Prod: lower CPU threshold
+        - name: memory_utilization
+          target_value: 80      # Prod: lower memory threshold
+      circuit_breaker:
+        failure_threshold: 2    # Prod: less tolerant
+        recovery_time: 120s     # Prod: faster recovery
+    environment_variables:
+      LOG_LEVEL: warn
+      WORKER_INTERVAL: "5s"
+
+# Secrets - direct env var names
+secrets:
+  - DB_PASSWORD
