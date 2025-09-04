@@ -1,0 +1,95 @@
+name: Deploy Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'Worker service name (worker-c, worker-d)'
+        required: true
+        type: choice
+        options:
+          - worker-c
+          - worker-d
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Checkout infra repo
+      uses: actions/checkout@v4
+      with:
+        repository: tintranva/flodesk-demo-infra
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: flodesk-infra
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
+        role-session-name: GitHubActions-DeployWorker-${{ github.event.inputs.environment }}
+        aws-region: us-east-1
+        
+    - name: Login to Amazon ECR
+      uses: aws-actions/amazon-ecr-login@v2
+      
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
+    - name: Build and push Docker image
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        ECR_REGISTRY: 647272350116.dkr.ecr.us-east-1.amazonaws.com
+      run: |
+        IMAGE_TAG=v$(date +%Y%m%d_%H%M%S)_$(git rev-parse --short HEAD)
+        ECR_URI=$ECR_REGISTRY/$SERVICE_NAME-$ENVIRONMENT
+        
+        # Build image
+        docker build --platform linux/arm64 \
+          -f Dockerfile.worker \
+          --build-arg SERVICE_NAME=$SERVICE_NAME \
+          --build-arg TARGETARCH=arm64 \
+          -t $SERVICE_NAME:$IMAGE_TAG .
+          
+        # Tag and push
+        docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:$IMAGE_TAG
+        docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:latest
+        docker push $ECR_URI:$IMAGE_TAG
+        docker push $ECR_URI:latest
+        
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+        
+    - name: Generate Terraform config
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+      run: |
+        cd flodesk-infra/scripts
+        python3 generate-worker-infra.py $SERVICE_NAME $ENVIRONMENT
+        
+    - name: Deploy infrastructure
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+      run: |
+        cd cmd/$SERVICE_NAME/.terraform
+        terraform init
+        terraform plan -out=tfplan
+        terraform apply tfplan

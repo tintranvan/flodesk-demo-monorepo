@@ -1,0 +1,87 @@
+name: Deploy API
+
+on:
+  workflow_dispatch:
+    inputs:
+      service_name:
+        description: 'API service name'
+        required: true
+        type: choice
+        options:
+          - api-svc-a
+          - api-svc-b
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Checkout infra repo
+      uses: actions/checkout@v4
+      with:
+        repository: tintranva/flodesk-demo-infra
+        token: ${{ secrets.GITHUB_TOKEN }}
+        path: flodesk-infra
+      
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
+        role-session-name: GitHubActions-DeployAPI-${{ github.event.inputs.environment }}
+        aws-region: us-east-1
+        
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+        
+    - name: Build Lambda package
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+      run: |
+        cd cmd/$SERVICE_NAME
+        GOOS=linux GOARCH=arm64 go build -o bootstrap main.go
+        zip -r ../../.build/$SERVICE_NAME.zip bootstrap
+        
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.5.0
+        
+    - name: Generate Terraform config
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+      run: |
+        cd flodesk-infra/scripts
+        python3 generate-api-infra.py $SERVICE_NAME $ENVIRONMENT
+        
+    - name: Deploy infrastructure
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+      run: |
+        cd cmd/$SERVICE_NAME/.terraform
+        terraform init
+        terraform plan -out=tfplan
+        terraform apply tfplan
+        
+    - name: Deploy API Gateway
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+      run: |
+        aws apigateway create-deployment \
+          --rest-api-id $(terraform output -raw api_gateway_id) \
+          --stage-name latest
