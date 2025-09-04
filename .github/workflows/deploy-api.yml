@@ -69,7 +69,7 @@ jobs:
         ENVIRONMENT: ${{ github.event.inputs.environment }}
       run: |
         cd flodesk-infra/scripts
-        python3 generate-service-infra.py $SERVICE_NAME $ENVIRONMENT
+        python3 generate-service-infra.py ../../cmd/$SERVICE_NAME $ENVIRONMENT
         
     - name: Deploy infrastructure
       env:
