@@ -95,8 +95,8 @@ jobs:
         
     - name: Build Lambda package
       env:
-        SERVICE_NAME: ${{ env.SERVICE_NAME }}
-        ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         mkdir -p .build
         cd cmd/$SERVICE_NAME
@@ -110,16 +110,16 @@ jobs:
         
     - name: Generate Terraform config
       env:
-        SERVICE_NAME: ${{ env.SERVICE_NAME }}
-        ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd flodesk-infra/scripts
         python3 generate-service-infra.py ../../cmd/$SERVICE_NAME $ENVIRONMENT
         
     - name: Deploy infrastructure
       env:
-        SERVICE_NAME: ${{ env.SERVICE_NAME }}
-        ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         # Copy zip file to terraform directory
         cp .build/$SERVICE_NAME.zip cmd/$SERVICE_NAME/.terraform/
@@ -132,8 +132,8 @@ jobs:
         
     - name: SCA - Runtime Quality Gate
       env:
-        SERVICE_NAME: ${{ env.SERVICE_NAME }}
-        ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
         
@@ -241,8 +241,8 @@ jobs:
         
     - name: Deploy API Gateway
       env:
-        SERVICE_NAME: ${{ env.SERVICE_NAME }}
-        ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
@@ -261,8 +261,8 @@ jobs:
         
     - name: Health check with rollback
       env:
-        SERVICE_NAME: ${{ env.SERVICE_NAME }}
-        ENVIRONMENT: ${{ env.ENVIRONMENT }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
