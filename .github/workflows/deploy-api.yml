@@ -117,15 +117,21 @@ jobs:
         STAGE_NAME=$(terraform output -raw api_gateway_stage 2>/dev/null || echo "latest")
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
         
+        # Construct health check URL
+        HEALTH_URL="$API_URL/$SERVICE_NAME/health"
+        
         echo "🏥 Health check..."
-        CURRENT_VERSION=$(aws lambda get-alias --function-name $FUNCTION_NAME --name latest --query 'FunctionVersion' --output text)
+        echo "📍 Health check URL: $HEALTH_URL"
+        echo "🔗 You can test manually: curl $HEALTH_URL"
+        
         sleep 5  # Wait for deployment to stabilize
         
         # Test health endpoint
-        HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $API_URL/$SERVICE_NAME/health || echo "000")
+        HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL || echo "000")
         
         if [ "$HEALTH_RESPONSE" != "200" ]; then
             echo "❌ Health check failed (HTTP $HEALTH_RESPONSE)"
+            echo "🔗 Manual test: curl -v $HEALTH_URL"
             
             # Get previous version
             PREVIOUS_VERSION=$(aws lambda list-versions-by-function --function-name $FUNCTION_NAME --query 'Versions[?Version!=`$LATEST`]|[-2].Version' --output text)
@@ -143,4 +149,5 @@ jobs:
             exit 1
         else
             echo "✅ Health check passed (HTTP $HEALTH_RESPONSE)"
+            echo "🔗 Health endpoint working: $HEALTH_URL"
         fi
