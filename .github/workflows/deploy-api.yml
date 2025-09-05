@@ -85,6 +85,50 @@ jobs:
         terraform apply -auto-approve tfplan
         echo "✅ Infrastructure deployed"
         
+    - name: SCA - Runtime Quality Gate
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+      run: |
+        FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
+        
+        echo "🔍 Checking Lambda errors in the last 5 minutes..."
+        
+        # Get error count from CloudWatch metrics
+        END_TIME=$(date -u +%Y-%m-%dT%H:%M:%S)
+        START_TIME=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%S)
+        
+        ERROR_COUNT=$(aws cloudwatch get-metric-statistics \
+          --namespace AWS/Lambda \
+          --metric-name Errors \
+          --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
+          --start-time $START_TIME \
+          --end-time $END_TIME \
+          --period 300 \
+          --statistics Sum \
+          --query 'Datapoints[0].Sum' \
+          --output text 2>/dev/null || echo "0")
+        
+        # Handle None/null response
+        if [ "$ERROR_COUNT" = "None" ] || [ "$ERROR_COUNT" = "null" ] || [ -z "$ERROR_COUNT" ]; then
+          ERROR_COUNT=0
+        fi
+        
+        echo "Lambda errors in last 5 minutes: $ERROR_COUNT"
+        
+        if [ "$ERROR_COUNT" -gt 0 ]; then
+          if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
+            echo "❌ CRITICAL: $ERROR_COUNT errors detected in production environment"
+            echo "Blocking API Gateway deployment due to Lambda errors"
+            exit 1
+          else
+            echo "⚠️  WARNING: $ERROR_COUNT errors detected in $ENVIRONMENT environment"
+            echo "💡 Proceeding with deployment but consider investigating"
+          fi
+        else
+          echo "✅ No Lambda errors detected - safe to deploy API Gateway"
+        fi
+        
     - name: Deploy API Gateway
       env:
         SERVICE_NAME: ${{ github.event.inputs.service_name }}
@@ -120,9 +164,9 @@ jobs:
         # Construct correct health check URL 
         HEALTH_URL="$API_BASE_URL/$SERVICE_NAME/health"
         
-        echo "🏥 Health check..."
-        echo "📍 Health check URL: $HEALTH_URL"
-        echo "🔗 You can test manually: curl $HEALTH_URL"
+        echo "Health check..."
+        echo "Health check URL: $HEALTH_URL"
+        echo "You can test manually: curl $HEALTH_URL"
         
         sleep 5  # Wait for deployment to stabilize
         
@@ -131,7 +175,7 @@ jobs:
         
         if [ "$HEALTH_RESPONSE" != "200" ]; then
             echo "❌ Health check failed (HTTP $HEALTH_RESPONSE)"
-            echo "🔗 Manual test: curl -v $HEALTH_URL"
+            echo "Manual test: curl -v $HEALTH_URL"
             
             # Get previous version
             PREVIOUS_VERSION=$(aws lambda list-versions-by-function --function-name $FUNCTION_NAME --query 'Versions[?Version!=`$LATEST`]|[-2].Version' --output text)
@@ -149,5 +193,5 @@ jobs:
             exit 1
         else
             echo "✅ Health check passed (HTTP $HEALTH_RESPONSE)"
-            echo "🔗 Health endpoint working: $HEALTH_URL"
+            echo "Health endpoint working: $HEALTH_URL"
         fi
