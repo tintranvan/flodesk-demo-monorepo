@@ -23,7 +23,7 @@ type Message struct {
 }
 
 func main() {
-	log.Println("🚀 Starting Worker-C...")
+	log.Println("Starting Worker-C...")
 
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(context.TODO())
@@ -43,7 +43,7 @@ func main() {
 		}
 	}
 
-	log.Printf("📥 Listening to queue: %s", queueURL)
+	log.Printf("Listening to queue: %s", queueURL)
 
 	// Create context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,7 +55,7 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Println("🛑 Shutdown signal received, stopping worker...")
+		log.Println("Shutdown signal received, stopping worker...")
 		cancel()
 	}()
 
@@ -63,7 +63,7 @@ func main() {
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("✅ Worker-C stopped gracefully")
+			log.Println("Worker-C stopped gracefully")
 			return
 		default:
 			processMessages(ctx, sqsClient, queueURL)
@@ -81,22 +81,22 @@ func processMessages(ctx context.Context, client *sqs.Client, queueURL string) {
 	})
 
 	if err != nil {
-		log.Printf("❌ Error receiving messages: %v", err)
+		log.Printf("Error receiving messages: %v", err)
 		time.Sleep(5 * time.Second)
 		return
 	}
 
 	if len(result.Messages) == 0 {
-		log.Println("📭 No messages received, continuing to poll...")
+		log.Println("No messages received, continuing to poll...")
 		return
 	}
 
-	log.Printf("📨 Received %d messages", len(result.Messages))
+	log.Printf("Received %d messages", len(result.Messages))
 
 	// Process each message
 	for _, msg := range result.Messages {
 		if err := processMessage(ctx, client, queueURL, msg); err != nil {
-			log.Printf("❌ Error processing message %s: %v", *msg.MessageId, err)
+			log.Printf("Error processing message %s: %v", *msg.MessageId, err)
 		}
 	}
 }
