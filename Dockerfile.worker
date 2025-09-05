@@ -1,0 +1,32 @@
+# Multi-stage build for Go worker services
+FROM golang:1.22-alpine AS builder
+
+ARG SERVICE_NAME
+ARG TARGETARCH=arm64
+
+WORKDIR /app
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the specific service
+WORKDIR /app/cmd/${SERVICE_NAME}
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o worker .
+
+# Final stage
+FROM alpine:latest
+
+# Install ca-certificates for HTTPS requests
+RUN apk --no-cache add ca-certificates tzdata
+
+WORKDIR /root/
+
+# Copy the binary from builder stage
+COPY --from=builder /app/cmd/*/worker .
+
+# Run the worker
+CMD ["./worker"]
