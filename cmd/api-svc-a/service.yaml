@@ -43,7 +43,6 @@ environments:
       LOG_LEVEL: warn
       ENABLE_TRACING: "true"
 
-# Secrets - auto-create with naming convention: ${environment}/${service-name}/${secret-name}
 secrets:
   - db-password
   - jwt-secret

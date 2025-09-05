@@ -1,6 +1,7 @@
 name: Deploy API
 
 on:
+  # Manual trigger for all environments
   workflow_dispatch:
     inputs:
       service_name:
@@ -18,6 +19,12 @@ on:
           - dev
           - staging
           - prod
+  
+  # Auto trigger on dev branches only (exclude workflow changes)
+  push:
+    branches: [ 'dev', 'dev-*' ]
+    paths:
+      - 'cmd/api-*/**'
 
 jobs:
   deploy:
@@ -30,6 +37,43 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Detect changed services (for auto trigger)
+      id: detect
+      if: github.event_name == 'push'
+      run: |
+        # Get changed files from last commit (safer than range)
+        CHANGED_FILES=$(git show --name-only --pretty=format: HEAD | grep -v '^$')
+        echo "Changed files: $CHANGED_FILES"
+        
+        # Find changed API services
+        CHANGED_SERVICES=$(echo "$CHANGED_FILES" | grep '^cmd/api-' | cut -d'/' -f2 | sort -u)
+        echo "Changed services: $CHANGED_SERVICES"
+        
+        # Set service name for auto trigger (use first changed service)
+        SERVICE_NAME=$(echo "$CHANGED_SERVICES" | head -1)
+        if [ -z "$SERVICE_NAME" ]; then
+          SERVICE_NAME="api-svc-a"  # Default fallback
+        fi
+        echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+        echo "environment=dev" >> $GITHUB_OUTPUT
+        
+    - name: Set deployment variables
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "SERVICE_NAME=${{ env.SERVICE_NAME }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> $GITHUB_ENV
+        else
+          SERVICE_NAME="${{ steps.detect.outputs.service_name }}"
+          if [ -z "$SERVICE_NAME" ]; then
+            echo "❌ No API service detected in changes - skipping deployment"
+            exit 0
+          fi
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ steps.detect.outputs.environment }}" >> $GITHUB_ENV
+        fi
+        
+        echo "🚀 Deploying: $SERVICE_NAME to $ENVIRONMENT"
+      
     - name: Checkout infra repo
       uses: actions/checkout@v4
       with:
@@ -41,7 +85,7 @@ jobs:
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
-        role-session-name: GitHubActions-DeployAPI-${{ github.event.inputs.environment }}
+        role-session-name: GitHubActions-DeployAPI
         aws-region: us-east-1
         
     - name: Setup Go
@@ -51,11 +95,12 @@ jobs:
         
     - name: Build Lambda package
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         mkdir -p .build
         cd cmd/$SERVICE_NAME
-        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o bootstrap main.go
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o bootstrap .
         zip -r ../../.build/$SERVICE_NAME.zip bootstrap
         
     - name: Setup Terraform
@@ -65,16 +110,16 @@ jobs:
         
     - name: Generate Terraform config
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd flodesk-infra/scripts
         python3 generate-service-infra.py ../../cmd/$SERVICE_NAME $ENVIRONMENT
         
     - name: Deploy infrastructure
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         # Copy zip file to terraform directory
         cp .build/$SERVICE_NAME.zip cmd/$SERVICE_NAME/.terraform/
@@ -87,8 +132,8 @@ jobs:
         
     - name: SCA - Runtime Quality Gate
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
         
@@ -196,8 +241,8 @@ jobs:
         
     - name: Deploy API Gateway
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
@@ -216,8 +261,8 @@ jobs:
         
     - name: Health check with rollback
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
