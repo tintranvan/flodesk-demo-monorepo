@@ -55,7 +55,7 @@ jobs:
       run: |
         mkdir -p .build
         cd cmd/$SERVICE_NAME
-        GOOS=linux GOARCH=arm64 go build -o bootstrap main.go
+        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o bootstrap main.go
         zip -r ../../.build/$SERVICE_NAME.zip bootstrap
         
     - name: Setup Terraform
