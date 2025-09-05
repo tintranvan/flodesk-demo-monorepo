@@ -253,8 +253,7 @@ jobs:
         echo "🔄 Starting ECS rolling deployment..."
         
         SERVICE_NAME_FULL="$ENVIRONMENT-$SERVICE_NAME"
-        cd cmd/$SERVICE_NAME/.terraform
-        CLUSTER_NAME=$(terraform output -raw cluster_name)
+        CLUSTER_NAME="flodesk-$ENVIRONMENT-cluster"
         
         # Get current task definition for rollback
         echo "📋 Saving current state for rollback..."
