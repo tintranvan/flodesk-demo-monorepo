@@ -223,7 +223,7 @@ jobs:
         ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd flodesk-infra/scripts
-        python3 generate-worker-infra.py $SERVICE_NAME $ENVIRONMENT
+        python3 generate-worker-infra.py ../../cmd/$SERVICE_NAME $ENVIRONMENT
         
     - name: Deploy infrastructure
       env:
