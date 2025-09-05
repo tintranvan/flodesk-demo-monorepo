@@ -92,14 +92,15 @@ jobs:
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
-        # Get API Gateway ID from terraform output
+        # Get stage name from service config
+        STAGE_NAME=$(terraform output -raw api_gateway_stage 2>/dev/null || echo "latest")
         API_GATEWAY_ID=$(terraform output -raw api_gateway_url | cut -d'/' -f3 | cut -d'.' -f1)
         
         if [ -n "$API_GATEWAY_ID" ]; then
           aws apigateway create-deployment \
             --rest-api-id $API_GATEWAY_ID \
-            --stage-name latest
-          echo "✅ API Gateway deployed"
+            --stage-name $STAGE_NAME
+          echo "✅ API Gateway deployed to stage: $STAGE_NAME"
         else
           echo "⚠️ API Gateway ID not found, skipping deployment"
         fi
@@ -111,8 +112,9 @@ jobs:
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
-        # Get API Gateway URL
+        # Get API Gateway URL and stage
         API_URL=$(terraform output -raw api_gateway_url)
+        STAGE_NAME=$(terraform output -raw api_gateway_stage 2>/dev/null || echo "latest")
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
         
         echo "🏥 Health check..."
@@ -133,7 +135,7 @@ jobs:
                 aws lambda update-alias --function-name $FUNCTION_NAME --name latest --function-version $PREVIOUS_VERSION
                 
                 API_GATEWAY_ID=$(echo $API_URL | cut -d'/' -f3 | cut -d'.' -f1)
-                aws apigateway create-deployment --rest-api-id $API_GATEWAY_ID --stage-name latest
+                aws apigateway create-deployment --rest-api-id $API_GATEWAY_ID --stage-name $STAGE_NAME
                 echo "✅ Rollback completed"
             else
                 echo "⚠️ No previous version available for rollback"
