@@ -88,31 +88,40 @@ jobs:
         role-session-name: GitHubActions-DeployWorker-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
         aws-region: us-east-1
         
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+      
     - name: Build Docker image
       env:
         SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
         ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
-        echo "🔨 Building Docker image..."
+        echo "🔨 Building Docker image with cache..."
         
         # Generate image tag with timestamp
         IMAGE_TAG="v$(date +%Y%m%d_%H%M%S)_$(git rev-parse --short HEAD 2>/dev/null || echo 'local')"
         REPO_NAME="$SERVICE_NAME-$ENVIRONMENT"
         ECR_URI="647272350116.dkr.ecr.us-east-1.amazonaws.com/$REPO_NAME"
         
-        # Build from root directory using Dockerfile.worker
-        docker build --platform linux/arm64 \
-          -f Dockerfile.worker \
-          --build-arg SERVICE_NAME=$SERVICE_NAME \
-          --build-arg TARGETARCH=arm64 \
-          -t $SERVICE_NAME:$IMAGE_TAG .
-        docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:$IMAGE_TAG
-        docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:latest
-        docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:latest
-        
-        echo "✅ Built Docker image with tag: $IMAGE_TAG"
         echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
         echo "ECR_URI=$ECR_URI" >> $GITHUB_ENV
+        
+    - name: Build and cache Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile.worker
+        build-args: |
+          SERVICE_NAME=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+          TARGETARCH=arm64
+        platforms: linux/arm64
+        tags: |
+          ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}:${{ env.IMAGE_TAG }}
+          ${{ env.ECR_URI }}:${{ env.IMAGE_TAG }}
+          ${{ env.ECR_URI }}:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        load: true
         
     - name: SCA - Container Security Scan
       env:

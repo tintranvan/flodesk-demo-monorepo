@@ -93,6 +93,24 @@ jobs:
       with:
         go-version: '1.22'
         
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+        
+    - name: Cache Lambda builds
+      uses: actions/cache@v4
+      with:
+        path: .build/
+        key: lambda-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}-${{ hashFiles('cmd/${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}/**') }}
+        restore-keys: |
+          lambda-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}-
+        
     - name: Build Lambda package
       env:
         SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
