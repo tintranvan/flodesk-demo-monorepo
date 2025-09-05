@@ -1,10 +1,11 @@
-name: Deploy Worker
+name: Deploy Worker Service
 
 on:
+  # Manual trigger for all environments
   workflow_dispatch:
     inputs:
       service_name:
-        description: 'Worker service name (worker-c, worker-d)'
+        description: 'Worker service name'
         required: true
         type: choice
         options:
@@ -18,6 +19,12 @@ on:
           - dev
           - staging
           - prod
+  
+  # Auto trigger on dev branches only
+  push:
+    branches: [ 'dev', 'dev-*' ]
+    paths:
+      - 'cmd/worker-*/**'
 
 jobs:
   deploy:
@@ -30,6 +37,43 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
       
+    - name: Detect changed services (for auto trigger)
+      id: detect
+      if: github.event_name == 'push'
+      run: |
+        # Get changed files from last commit
+        CHANGED_FILES=$(git show --name-only --pretty=format: HEAD | grep -v '^$')
+        echo "Changed files: $CHANGED_FILES"
+        
+        # Find changed worker services
+        CHANGED_SERVICES=$(echo "$CHANGED_FILES" | grep '^cmd/worker-' | cut -d'/' -f2 | sort -u)
+        echo "Changed services: $CHANGED_SERVICES"
+        
+        # Set service name for auto trigger
+        SERVICE_NAME=$(echo "$CHANGED_SERVICES" | head -1)
+        if [ -z "$SERVICE_NAME" ]; then
+          SERVICE_NAME="worker-c"  # Default fallback
+        fi
+        echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+        echo "environment=dev" >> $GITHUB_OUTPUT
+        
+    - name: Set deployment variables
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "SERVICE_NAME=${{ github.event.inputs.service_name }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        else
+          SERVICE_NAME="${{ steps.detect.outputs.service_name }}"
+          if [ -z "$SERVICE_NAME" ] || [ "$SERVICE_NAME" = "" ]; then
+            echo "❌ No worker service detected in changes - skipping deployment"
+            exit 0
+          fi
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
+          echo "ENVIRONMENT=dev" >> $GITHUB_ENV
+        fi
+        
+        echo "🚀 Deploying: $SERVICE_NAME to $ENVIRONMENT"
+      
     - name: Checkout infra repo
       uses: actions/checkout@v4
       with:
@@ -40,59 +84,273 @@ jobs:
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
       with:
-        role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
-        role-session-name: GitHubActions-DeployWorker-${{ github.event.inputs.environment }}
+        role-to-assume: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
+        role-session-name: GitHubActions-DeployWorker-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
         aws-region: us-east-1
         
-    - name: Login to Amazon ECR
-      uses: aws-actions/amazon-ecr-login@v2
-      
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Build and push Docker image
-      env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
-        ECR_REGISTRY: 647272350116.dkr.ecr.us-east-1.amazonaws.com
-      run: |
-        IMAGE_TAG=v$(date +%Y%m%d_%H%M%S)_$(git rev-parse --short HEAD)
-        ECR_URI=$ECR_REGISTRY/$SERVICE_NAME-$ENVIRONMENT
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
         
-        # Build image
+    - name: Build Docker image
+      env:
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
+      run: |
+        echo "🔨 Building Docker image..."
+        cd cmd/$SERVICE_NAME
+        
+        # Generate image tag with timestamp
+        IMAGE_TAG="v$(date +%Y%m%d_%H%M%S)_$(git rev-parse --short HEAD 2>/dev/null || echo 'local')"
+        REPO_NAME="$SERVICE_NAME-$ENVIRONMENT"
+        ECR_URI="647272350116.dkr.ecr.us-east-1.amazonaws.com/$REPO_NAME"
+        
+        # Build and tag image using shared Dockerfile.worker
         docker build --platform linux/arm64 \
-          -f Dockerfile.worker \
+          -f ../Dockerfile.worker \
           --build-arg SERVICE_NAME=$SERVICE_NAME \
           --build-arg TARGETARCH=arm64 \
-          -t $SERVICE_NAME:$IMAGE_TAG .
-          
-        # Tag and push
+          -t $SERVICE_NAME:$IMAGE_TAG ../
         docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:$IMAGE_TAG
         docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:latest
+        
+        echo "✅ Built Docker image with tag: $IMAGE_TAG"
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        echo "ECR_URI=$ECR_URI" >> $GITHUB_ENV
+        
+    - name: SCA - Container Security Scan
+      env:
+        SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ env.ENVIRONMENT }}
+      run: |
+        echo "🔍 Scanning Docker image for vulnerabilities..."
+        
+        # Install Docker Scout
+        curl -sSfL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
+        
+        # Scan the local image before pushing
+        LOCAL_IMAGE="$SERVICE_NAME:$IMAGE_TAG"
+        echo "🔍 Scanning image: $LOCAL_IMAGE"
+        
+        SCAN_RESULT=$(docker scout cves --format sarif --output /tmp/scout-results.sarif $LOCAL_IMAGE 2>&1 || echo "scan_failed")
+        
+        if [ "$SCAN_RESULT" = "scan_failed" ]; then
+          echo "⚠️  WARNING: Docker Scout scan failed - proceeding with deployment"
+          echo "💡 Consider manual security review"
+        else
+          # Parse SARIF results for critical/high vulnerabilities
+          CRITICAL_COUNT=$(jq '[.runs[].results[] | select(.level == "error")] | length' /tmp/scout-results.sarif 2>/dev/null || echo "0")
+          HIGH_COUNT=$(jq '[.runs[].results[] | select(.level == "warning")] | length' /tmp/scout-results.sarif 2>/dev/null || echo "0")
+          
+          echo ""
+          echo "📊 Container Vulnerability Summary:"
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo -e "  \033[1;31mCRITICAL: $CRITICAL_COUNT\033[0m"
+          else
+            echo "  CRITICAL: $CRITICAL_COUNT"
+          fi
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo -e "  \033[1;33mHIGH: $HIGH_COUNT\033[0m"
+          else
+            echo "  HIGH: $HIGH_COUNT"
+          fi
+          
+          # Show top vulnerabilities
+          if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+            echo ""
+            echo "🚨 Top Vulnerabilities:"
+            docker scout cves --format table --only-severity critical,high $LOCAL_IMAGE | head -20
+          fi
+          
+          # Production environment - strict policy
+          if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo ""
+              echo "❌ DEPLOYMENT BLOCKED: Critical vulnerabilities found in production container"
+              echo "🔧 Action Required: Fix critical vulnerabilities before production deployment"
+              echo "💡 Suggested fix: Update base image and dependencies"
+              exit 1
+            elif [ "$HIGH_COUNT" -gt 5 ]; then
+              echo ""
+              echo "❌ DEPLOYMENT BLOCKED: Too many high severity vulnerabilities ($HIGH_COUNT > 5)"
+              echo "🔧 Action Required: Reduce high severity vulnerabilities"
+              exit 1
+            elif [ "$HIGH_COUNT" -gt 0 ]; then
+              echo ""
+              echo "⚠️  WARNING: High severity vulnerabilities found in production"
+              echo "🔧 Recommendation: Fix high severity issues for better security posture"
+            fi
+          else
+            # Non-production environments - warning only
+            if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+              echo ""
+              echo "⚠️  WARNING: Security vulnerabilities found in $ENVIRONMENT container"
+              echo "🔧 Action Required: Fix these vulnerabilities before promoting to production"
+              echo "💡 Suggested fix: Update base image and Go dependencies"
+            fi
+          fi
+          
+          if [ "$CRITICAL_COUNT" -eq 0 ] && [ "$HIGH_COUNT" -eq 0 ]; then
+            echo "✅ No critical or high severity vulnerabilities found"
+          fi
+        fi
+        
+    - name: Push Docker image to ECR
+      env:
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
+      run: |
+        echo "📦 Pushing to ECR..."
+        
+        # Login to ECR
+        aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 647272350116.dkr.ecr.us-east-1.amazonaws.com
+        
+        # Create repository if not exists
+        REPO_NAME="$SERVICE_NAME-$ENVIRONMENT"
+        aws ecr describe-repositories --repository-names $REPO_NAME --region us-east-1 >/dev/null 2>&1 || \
+        aws ecr create-repository --repository-name $REPO_NAME --region us-east-1
+        
+        # Push image
         docker push $ECR_URI:$IMAGE_TAG
         docker push $ECR_URI:latest
         
-        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        echo "✅ Pushed to ECR with tags: $IMAGE_TAG, latest"
         
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+      uses: hashicorp/setup-terraform@v2
       with:
         terraform_version: 1.5.0
         
     - name: Generate Terraform config
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         cd flodesk-infra/scripts
-        python3 generate-service-infra.py $SERVICE_NAME $ENVIRONMENT
+        python3 generate-worker-infra.py $SERVICE_NAME $ENVIRONMENT
         
     - name: Deploy infrastructure
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
+        echo "🏗️ Deploying infrastructure..."
         cd cmd/$SERVICE_NAME/.terraform
+        
+        # Replace image tag in terraform with actual tag
+        sed -i.bak "s|:v\$(date.*)|:$IMAGE_TAG|g" main.tf
+        
+        # Initialize Terraform
         terraform init
+        
+        # Plan and apply
         terraform plan -out=tfplan
         terraform apply tfplan
+        
+        echo "✅ Infrastructure deployed"
+        
+    - name: ECS rolling deployment with health check
+      env:
+        SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
+      run: |
+        echo "🔄 Starting ECS rolling deployment..."
+        
+        SERVICE_NAME_FULL="$ENVIRONMENT-$SERVICE_NAME"
+        cd cmd/$SERVICE_NAME/.terraform
+        CLUSTER_NAME=$(terraform output -raw cluster_name)
+        
+        # Get current task definition for rollback
+        echo "📋 Saving current state for rollback..."
+        PREVIOUS_TASK_DEF=$(aws ecs describe-services \
+            --cluster $CLUSTER_NAME \
+            --services $SERVICE_NAME_FULL \
+            --region us-east-1 \
+            --query 'services[0].taskDefinition' \
+            --output text 2>/dev/null || echo "")
+        
+        echo "  Previous task definition: $PREVIOUS_TASK_DEF"
+        
+        # Start ECS rolling deployment
+        aws ecs update-service \
+            --cluster $CLUSTER_NAME \
+            --service $SERVICE_NAME_FULL \
+            --force-new-deployment \
+            --region us-east-1 >/dev/null
+        
+        echo "✅ ECS deployment initiated"
+        
+        # Health check with rollback capability
+        echo "🏥 Health check with rollback capability..."
+        
+        for i in {1..30}; do  # 5 minutes max (30 * 10s)
+            echo "  Health check attempt $i/30..."
+            sleep 10
+            
+            SERVICE_STATUS=$(aws ecs describe-services \
+                --cluster $CLUSTER_NAME \
+                --services $SERVICE_NAME_FULL \
+                --region us-east-1 \
+                --query 'services[0].runningCount' \
+                --output text)
+            
+            DESIRED_COUNT=$(aws ecs describe-services \
+                --cluster $CLUSTER_NAME \
+                --services $SERVICE_NAME_FULL \
+                --region us-east-1 \
+                --query 'services[0].desiredCount' \
+                --output text)
+
+            if [ "$SERVICE_STATUS" -ge "$DESIRED_COUNT" ]; then
+                # Check deployment status
+                DEPLOYMENT_STATUS=$(aws ecs describe-services \
+                    --cluster $CLUSTER_NAME \
+                    --services $SERVICE_NAME_FULL \
+                    --region us-east-1 \
+                    --query 'services[0].deployments[?status==`PRIMARY`].rolloutState' \
+                    --output text)
+                
+                if [ "$DEPLOYMENT_STATUS" = "COMPLETED" ]; then
+                    echo "✅ Health check passed ($SERVICE_STATUS/$DESIRED_COUNT tasks running)"
+                    echo "✅ Deployment completed successfully"
+                    
+                    # Test SQS queue processing
+                    QUEUE_URL=$(terraform output -raw queue_url 2>/dev/null || echo "")
+                    if [ -n "$QUEUE_URL" ]; then
+                        echo "📤 Testing queue processing..."
+                        aws sqs send-message --queue-url $QUEUE_URL --message-body '{"test": "deployment-verification", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}'
+                        echo "✅ Test message sent to queue"
+                    fi
+                    
+                    echo "🎉 Worker deployment completed successfully!"
+                    break
+                else
+                    echo "  Deployment status: $DEPLOYMENT_STATUS ($SERVICE_STATUS/$DESIRED_COUNT tasks)"
+                fi
+            else
+                echo "  Status: $SERVICE_STATUS/$DESIRED_COUNT tasks running..."
+            fi
+            
+            # If this is the last attempt, prepare for rollback
+            if [ $i -eq 30 ]; then
+                echo "❌ Health check failed after 30 attempts"
+                
+                if [ ! -z "$PREVIOUS_TASK_DEF" ] && [ "$PREVIOUS_TASK_DEF" != "None" ]; then
+                    echo "🔄 Rolling back to previous task definition..."
+                    
+                    aws ecs update-service \
+                        --cluster $CLUSTER_NAME \
+                        --service $SERVICE_NAME_FULL \
+                        --task-definition $PREVIOUS_TASK_DEF \
+                        --region us-east-1 >/dev/null
+                        
+                    echo "✅ Rollback initiated to $PREVIOUS_TASK_DEF"
+                fi
+                
+                exit 1
+            fi
+        done
+        
+        # Cleanup
+        rm -f tfplan
