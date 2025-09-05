@@ -82,11 +82,10 @@ jobs:
         path: flodesk-infra
       
     - name: Configure AWS credentials
-      ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
-        role-session-name: GitHubActions-DeployAPI-${{ env.ENVIRONMENT }}
+        role-session-name: GitHubActions-DeployAPI
         aws-region: us-east-1
         
     - name: Setup Go
