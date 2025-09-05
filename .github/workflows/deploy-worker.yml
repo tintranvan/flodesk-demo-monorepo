@@ -129,6 +129,9 @@ jobs:
           echo "🔐 Logging into Docker Hub..."
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
           
+          echo "📥 Installing Docker Scout..."
+          curl -sSfL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
+          
           echo "📦 Checking vulnerable packages..."
           docker scout cves --format only-packages --only-vuln-packages --only-severity critical,high $LOCAL_IMAGE || true
           
