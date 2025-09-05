@@ -117,8 +117,8 @@ jobs:
         STAGE_NAME=$(terraform output -raw api_gateway_stage 2>/dev/null || echo "latest")
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
         
-        # Construct correct health check URL with stage from service.yaml
-        HEALTH_URL="${API_BASE_URL%/v1}/$STAGE_NAME/$SERVICE_NAME/health"
+        # Construct correct health check URL 
+        HEALTH_URL="$API_BASE_URL/$SERVICE_NAME/health"
         
         echo "🏥 Health check..."
         echo "📍 Health check URL: $HEALTH_URL"
