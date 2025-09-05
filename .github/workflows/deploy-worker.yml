@@ -88,31 +88,26 @@ jobs:
         role-session-name: GitHubActions-DeployWorker-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || 'dev' }}
         aws-region: us-east-1
         
-    - name: Setup Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.22'
-        
     - name: Build Docker image
       env:
         SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
         ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
         echo "🔨 Building Docker image..."
-        cd cmd/$SERVICE_NAME
         
         # Generate image tag with timestamp
         IMAGE_TAG="v$(date +%Y%m%d_%H%M%S)_$(git rev-parse --short HEAD 2>/dev/null || echo 'local')"
         REPO_NAME="$SERVICE_NAME-$ENVIRONMENT"
         ECR_URI="647272350116.dkr.ecr.us-east-1.amazonaws.com/$REPO_NAME"
         
-        # Build and tag image using shared Dockerfile.worker
+        # Build from root directory using Dockerfile.worker
         docker build --platform linux/arm64 \
-          -f ../Dockerfile.worker \
+          -f Dockerfile.worker \
           --build-arg SERVICE_NAME=$SERVICE_NAME \
           --build-arg TARGETARCH=arm64 \
-          -t $SERVICE_NAME:$IMAGE_TAG ../
+          -t $SERVICE_NAME:$IMAGE_TAG .
         docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:$IMAGE_TAG
+        docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:latest
         docker tag $SERVICE_NAME:$IMAGE_TAG $ECR_URI:latest
         
         echo "✅ Built Docker image with tag: $IMAGE_TAG"
