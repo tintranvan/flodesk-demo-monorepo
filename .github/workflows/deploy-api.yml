@@ -1,6 +1,7 @@
 name: Deploy API
 
 on:
+  # Manual trigger for all environments
   workflow_dispatch:
     inputs:
       service_name:
@@ -18,6 +19,13 @@ on:
           - dev
           - staging
           - prod
+  
+  # Auto trigger on dev branches only (production requires manual)
+  push:
+    branches: [ 'dev', 'dev-*' ]
+    paths:
+      - 'cmd/api-*/**'
+      - '.github/workflows/deploy-api.yml'
 
 jobs:
   deploy:
@@ -29,6 +37,33 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      
+    - name: Detect changed services (for auto trigger)
+      id: detect
+      if: github.event_name == 'push'
+      run: |
+        # Get changed files in this push
+        CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
+        echo "Changed files: $CHANGED_FILES"
+        
+        # Find changed API services
+        CHANGED_SERVICES=$(echo "$CHANGED_FILES" | grep '^cmd/api-' | cut -d'/' -f2 | sort -u)
+        echo "Changed services: $CHANGED_SERVICES"
+        
+        # Set service name for auto trigger (use first changed service)
+        SERVICE_NAME=$(echo "$CHANGED_SERVICES" | head -1)
+        echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
+        echo "environment=dev" >> $GITHUB_OUTPUT
+        
+    - name: Set deployment variables
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          echo "SERVICE_NAME=${{ github.event.inputs.service_name }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+        else
+          echo "SERVICE_NAME=${{ steps.detect.outputs.service_name }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ steps.detect.outputs.environment }}" >> $GITHUB_ENV
+        fi
       
     - name: Checkout infra repo
       uses: actions/checkout@v4
@@ -87,8 +122,8 @@ jobs:
         
     - name: SCA - Runtime Quality Gate
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ env.ENVIRONMENT }}
       run: |
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
         
