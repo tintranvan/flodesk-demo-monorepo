@@ -60,8 +60,8 @@ jobs:
     - name: Set deployment variables
       run: |
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-          echo "SERVICE_NAME=${{ github.event.inputs.service_name }}" >> $GITHUB_ENV
-          echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          echo "SERVICE_NAME=${{ env.SERVICE_NAME }}" >> $GITHUB_ENV
+          echo "ENVIRONMENT=${{ env.ENVIRONMENT }}" >> $GITHUB_ENV
         else
           SERVICE_NAME="${{ steps.detect.outputs.service_name }}"
           if [ -z "$SERVICE_NAME" ]; then
@@ -85,7 +85,7 @@ jobs:
       uses: aws-actions/configure-aws-credentials@v4
       with:
         role-to-assume: ${{ github.event.inputs.environment == 'prod' && secrets.AWS_ROLE_PROD || secrets.AWS_ROLE_DEV }}
-        role-session-name: GitHubActions-DeployAPI-${{ github.event.inputs.environment }}
+        role-session-name: GitHubActions-DeployAPI-${{ env.ENVIRONMENT }}
         aws-region: us-east-1
         
     - name: Setup Go
@@ -95,7 +95,8 @@ jobs:
         
     - name: Build Lambda package
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ env.ENVIRONMENT }}
       run: |
         mkdir -p .build
         cd cmd/$SERVICE_NAME
@@ -109,16 +110,16 @@ jobs:
         
     - name: Generate Terraform config
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ env.ENVIRONMENT }}
       run: |
         cd flodesk-infra/scripts
         python3 generate-service-infra.py ../../cmd/$SERVICE_NAME $ENVIRONMENT
         
     - name: Deploy infrastructure
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ env.ENVIRONMENT }}
       run: |
         # Copy zip file to terraform directory
         cp .build/$SERVICE_NAME.zip cmd/$SERVICE_NAME/.terraform/
@@ -240,8 +241,8 @@ jobs:
         
     - name: Deploy API Gateway
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ env.ENVIRONMENT }}
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
@@ -260,8 +261,8 @@ jobs:
         
     - name: Health check with rollback
       env:
-        SERVICE_NAME: ${{ github.event.inputs.service_name }}
-        ENVIRONMENT: ${{ github.event.inputs.environment }}
+        SERVICE_NAME: ${{ env.SERVICE_NAME }}
+        ENVIRONMENT: ${{ env.ENVIRONMENT }}
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
