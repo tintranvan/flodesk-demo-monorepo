@@ -133,7 +133,7 @@ jobs:
         if [ "$FINDINGS_COUNT" = "0" ] || [ -z "$FINDINGS_COUNT" ]; then
           echo "✅ No security vulnerabilities found"
         else
-          echo "🚨 Security Vulnerabilities Found:"
+          echo "Security Vulnerabilities Found:"
           echo "$FINDINGS"
           
           # Get detailed remediation info
@@ -176,20 +176,19 @@ jobs:
             if [ "$CRITICAL_COUNT" -gt 0 ]; then
               echo ""
               echo "❌ DEPLOYMENT BLOCKED: Critical vulnerabilities found in production environment"
-              echo "🔧 Action Required: Upgrade Go version to fix vulnerabilities before production deployment"
+              echo "Action Required: Upgrade Go version to fix vulnerabilities before production deployment"
               exit 1
             elif [ "$HIGH_COUNT" -gt 0 ]; then
               echo ""
               echo "⚠️  WARNING: High severity vulnerabilities found in production"
-              echo "🔧 Recommendation: Fix high severity issues for better security posture"
+              echo "Recommendation: Fix high severity issues for better security posture"
             fi
           else
             # Non-production environments - warning only
             if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
               echo ""
               echo "⚠️  WARNING: Security vulnerabilities found in $ENVIRONMENT environment"
-              echo "🔧 Action Required: Fix these vulnerabilities before promoting to production"
-              echo "💡 Suggested fix: Upgrade Go version to latest stable release"
+              echo "Action Required: Fix these vulnerabilities before promoting to production"
             fi
           fi
         fi
