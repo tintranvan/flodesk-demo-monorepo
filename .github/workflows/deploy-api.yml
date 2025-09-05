@@ -91,9 +91,17 @@ jobs:
         ENVIRONMENT: ${{ github.event.inputs.environment }}
       run: |
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
-        FUNCTION_ARN="arn:aws:lambda:us-east-1:647272350116:function:$FUNCTION_NAME"
+        
+        # Get account ID dynamically
+        ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+        FUNCTION_ARN="arn:aws:lambda:us-east-1:$ACCOUNT_ID:function:$FUNCTION_NAME"
         
         echo "🔍 Checking Lambda security vulnerabilities..."
+        echo "Function ARN: $FUNCTION_ARN"
+        
+        # Test if function exists in Inspector
+        echo "Testing Inspector access..."
+        aws inspector2 list-findings --filter-criteria '{"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' --max-results 1 --query 'findings[0].resources[0].id' --output text
         
         # Get Inspector findings for this Lambda function
         FINDINGS=$(aws inspector2 list-findings \
