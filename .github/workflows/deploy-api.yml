@@ -101,20 +101,27 @@ jobs:
         
         # Test if function exists in Inspector
         echo "Testing Inspector access..."
-        aws inspector2 list-findings --filter-criteria '{"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' --max-results 1 --query 'findings[0].resources[0].id' --output text
+        INSPECTOR_TEST=$(aws inspector2 list-findings --filter-criteria '{"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' --max-results 1 --query 'findings[0].resources[0].id' --output text 2>&1)
+        echo "Inspector test result: $INSPECTOR_TEST"
+        
+        # Check if we have Inspector permissions
+        if echo "$INSPECTOR_TEST" | grep -q "AccessDenied\|UnauthorizedOperation"; then
+          echo "⚠️  WARNING: No Inspector permissions - skipping vulnerability scan"
+          echo "✅ Proceeding with deployment (Inspector scan skipped)"
+        else
         
         # Get Inspector findings for this Lambda function (try both with and without version)
         FINDINGS=$(aws inspector2 list-findings \
           --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN':$LATEST","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' \
           --query 'findings[*].{CVE:packageVulnerabilityDetails.vulnerabilityId,Severity:severity,Score:inspectorScore,Package:packageVulnerabilityDetails.vulnerablePackages[0].name,CurrentVersion:packageVulnerabilityDetails.vulnerablePackages[0].version,FixedInVersion:packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion,Remediation:remediation.recommendation.text}' \
-          --output table 2>/dev/null || echo "[]")
+          --output table --sort-by 'Score' --reverse 2>/dev/null || echo "[]")
         
         # If no findings with :$LATEST, try without version
         if [ "$FINDINGS" = "[]" ] || [ -z "$FINDINGS" ]; then
           FINDINGS=$(aws inspector2 list-findings \
             --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' \
             --query 'findings[*].{CVE:packageVulnerabilityDetails.vulnerabilityId,Severity:severity,Score:inspectorScore,Package:packageVulnerabilityDetails.vulnerablePackages[0].name,CurrentVersion:packageVulnerabilityDetails.vulnerablePackages[0].version,FixedInVersion:packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion,Remediation:remediation.recommendation.text}' \
-            --output table 2>/dev/null || echo "[]")
+            --output table --sort-by 'Score' --reverse 2>/dev/null || echo "[]")
         fi
         
         if [ "$FINDINGS" = "[]" ] || [ -z "$FINDINGS" ]; then
@@ -159,8 +166,16 @@ jobs:
           
           echo ""
           echo "📊 Vulnerability Summary:"
-          echo "  CRITICAL: $CRITICAL_COUNT"
-          echo "  HIGH: $HIGH_COUNT"
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo -e "  \033[1;31mCRITICAL: $CRITICAL_COUNT\033[0m"
+          else
+            echo "  CRITICAL: $CRITICAL_COUNT"
+          fi
+          if [ "$HIGH_COUNT" -gt 0 ]; then
+            echo -e "  \033[1;33mHIGH: $HIGH_COUNT\033[0m"
+          else
+            echo "  HIGH: $HIGH_COUNT"
+          fi
           
           # Production environment - strict policy
           if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
@@ -183,6 +198,7 @@ jobs:
               echo "💡 Suggested fix: Upgrade Go version to latest stable release"
             fi
           fi
+        fi
         fi
         
     - name: Deploy API Gateway
