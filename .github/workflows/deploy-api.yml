@@ -107,9 +107,9 @@ jobs:
       uses: actions/cache@v4
       with:
         path: .build/
-        key: lambda-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}-${{ hashFiles('cmd/${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}/**') }}
+        key: lambda-${{ env.SERVICE_NAME }}-${{ hashFiles('cmd/**/go.mod', 'cmd/**/go.sum', 'cmd/**/*.go') }}
         restore-keys: |
-          lambda-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}-
+          lambda-${{ env.SERVICE_NAME }}-
         
     - name: Build Lambda package
       env:
