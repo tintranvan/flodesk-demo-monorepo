@@ -119,21 +119,18 @@ jobs:
           echo "✅ Proceeding with deployment (Inspector scan skipped)"
         else
         
-        # Get Inspector findings for this Lambda function (try both with and without version)
+        # Get Inspector findings using the exact ARN that Inspector returned
         FINDINGS=$(aws inspector2 list-findings \
-          --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN':$LATEST","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' \
-          --query 'findings[*].{CVE:packageVulnerabilityDetails.vulnerabilityId,Severity:severity,Score:inspectorScore,Package:packageVulnerabilityDetails.vulnerablePackages[0].name,CurrentVersion:packageVulnerabilityDetails.vulnerablePackages[0].version,FixedInVersion:packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion,Remediation:remediation.recommendation.text}' \
-          --output table --sort-by 'Score' --reverse 2>/dev/null || echo "[]")
+          --filter-criteria '{"resourceId":[{"value":"'$INSPECTOR_TEST'","comparison":"EQUALS"}]}' \
+          --query 'findings[*].{CVE:packageVulnerabilityDetails.vulnerabilityId,Severity:severity,Score:inspectorScore,Package:packageVulnerabilityDetails.vulnerablePackages[0].name,CurrentVersion:packageVulnerabilityDetails.vulnerablePackages[0].version,FixedInVersion:packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion}' \
+          --output table 2>/dev/null)
         
-        # If no findings with :$LATEST, try without version
-        if [ "$FINDINGS" = "[]" ] || [ -z "$FINDINGS" ]; then
-          FINDINGS=$(aws inspector2 list-findings \
-            --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' \
-            --query 'findings[*].{CVE:packageVulnerabilityDetails.vulnerabilityId,Severity:severity,Score:inspectorScore,Package:packageVulnerabilityDetails.vulnerablePackages[0].name,CurrentVersion:packageVulnerabilityDetails.vulnerablePackages[0].version,FixedInVersion:packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion,Remediation:remediation.recommendation.text}' \
-            --output table --sort-by 'Score' --reverse 2>/dev/null || echo "[]")
-        fi
+        # Check if we actually have findings
+        FINDINGS_COUNT=$(aws inspector2 list-findings \
+          --filter-criteria '{"resourceId":[{"value":"'$INSPECTOR_TEST'","comparison":"EQUALS"}]}' \
+          --query 'length(findings)' --output text 2>/dev/null || echo "0")
         
-        if [ "$FINDINGS" = "[]" ] || [ -z "$FINDINGS" ]; then
+        if [ "$FINDINGS_COUNT" = "0" ] || [ -z "$FINDINGS_COUNT" ]; then
           echo "✅ No security vulnerabilities found"
         else
           echo "🚨 Security Vulnerabilities Found:"
@@ -152,26 +149,14 @@ jobs:
               fi
             done
           
-          # Count critical and high severity issues
+          # Count critical and high severity issues using exact ARN
           CRITICAL_COUNT=$(aws inspector2 list-findings \
-            --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN':$LATEST","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}],"severity":[{"value":"CRITICAL","comparison":"EQUALS"}]}' \
+            --filter-criteria '{"resourceId":[{"value":"'$INSPECTOR_TEST'","comparison":"EQUALS"}],"severity":[{"value":"CRITICAL","comparison":"EQUALS"}]}' \
             --query 'length(findings)' --output text 2>/dev/null || echo "0")
-          
-          if [ "$CRITICAL_COUNT" = "0" ]; then
-            CRITICAL_COUNT=$(aws inspector2 list-findings \
-              --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}],"severity":[{"value":"CRITICAL","comparison":"EQUALS"}]}' \
-              --query 'length(findings)' --output text 2>/dev/null || echo "0")
-          fi
           
           HIGH_COUNT=$(aws inspector2 list-findings \
-            --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN':$LATEST","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}],"severity":[{"value":"HIGH","comparison":"EQUALS"}]}' \
+            --filter-criteria '{"resourceId":[{"value":"'$INSPECTOR_TEST'","comparison":"EQUALS"}],"severity":[{"value":"HIGH","comparison":"EQUALS"}]}' \
             --query 'length(findings)' --output text 2>/dev/null || echo "0")
-          
-          if [ "$HIGH_COUNT" = "0" ]; then
-            HIGH_COUNT=$(aws inspector2 list-findings \
-              --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}],"severity":[{"value":"HIGH","comparison":"EQUALS"}]}' \
-              --query 'length(findings)' --output text 2>/dev/null || echo "0")
-          fi
           
           echo ""
           echo "📊 Vulnerability Summary:"
