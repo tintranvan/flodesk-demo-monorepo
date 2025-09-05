@@ -104,6 +104,15 @@ jobs:
         INSPECTOR_TEST=$(aws inspector2 list-findings --filter-criteria '{"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' --max-results 1 --query 'findings[0].resources[0].id' --output text 2>&1)
         echo "Inspector test result: $INSPECTOR_TEST"
         
+        # Debug: Check what Lambda functions Inspector sees
+        echo "Lambda functions in Inspector:"
+        aws inspector2 list-findings --filter-criteria '{"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' --query 'findings[*].resources[0].id' --output text | head -5
+        
+        # Debug: Try exact match with what Inspector returned
+        echo "Testing exact match with Inspector result..."
+        EXACT_FINDINGS=$(aws inspector2 list-findings --filter-criteria '{"resourceId":[{"value":"'$INSPECTOR_TEST'","comparison":"EQUALS"}]}' --query 'length(findings)' --output text 2>/dev/null || echo "0")
+        echo "Findings for exact ARN: $EXACT_FINDINGS"
+        
         # Check if we have Inspector permissions
         if echo "$INSPECTOR_TEST" | grep -q "AccessDenied\|UnauthorizedOperation"; then
           echo "⚠️  WARNING: No Inspector permissions - skipping vulnerability scan"
