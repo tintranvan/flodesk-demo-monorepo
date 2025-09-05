@@ -20,12 +20,11 @@ on:
           - staging
           - prod
   
-  # Auto trigger on dev branches only (production requires manual)
+  # Auto trigger on dev branches only (exclude workflow changes)
   push:
     branches: [ 'dev', 'dev-*' ]
     paths:
       - 'cmd/api-*/**'
-      - '.github/workflows/deploy-api.yml'
 
 jobs:
   deploy:
