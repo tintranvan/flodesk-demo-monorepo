@@ -42,14 +42,8 @@ jobs:
       id: detect
       if: github.event_name == 'push'
       run: |
-        # Get changed files in this push (handle first push)
-        if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-          # First push - check all API services
-          CHANGED_FILES=$(find cmd/api-* -name "*.go" -o -name "*.yaml" 2>/dev/null | head -10)
-        else
-          # Regular push - get diff
-          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
-        fi
+        # Get changed files from last commit (safer than range)
+        CHANGED_FILES=$(git show --name-only --pretty=format: HEAD | grep -v '^$')
         echo "Changed files: $CHANGED_FILES"
         
         # Find changed API services
