@@ -91,42 +91,70 @@ jobs:
         ENVIRONMENT: ${{ github.event.inputs.environment }}
       run: |
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
+        FUNCTION_ARN="arn:aws:lambda:us-east-1:647272350116:function:$FUNCTION_NAME"
         
-        echo "🔍 Checking Lambda errors in the last 5 minutes..."
+        echo "🔍 Checking Lambda security vulnerabilities..."
         
-        # Get error count from CloudWatch metrics
-        END_TIME=$(date -u +%Y-%m-%dT%H:%M:%S)
-        START_TIME=$(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%S)
+        # Get Inspector findings for this Lambda function
+        FINDINGS=$(aws inspector2 list-findings \
+          --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' \
+          --query 'findings[*].{CVE:packageVulnerabilityDetails.vulnerabilityId,Severity:severity,Score:inspectorScore,Package:packageVulnerabilityDetails.vulnerablePackages[0].name,CurrentVersion:packageVulnerabilityDetails.vulnerablePackages[0].version,FixedInVersion:packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion,Remediation:remediation.recommendation.text}' \
+          --output table 2>/dev/null || echo "[]")
         
-        ERROR_COUNT=$(aws cloudwatch get-metric-statistics \
-          --namespace AWS/Lambda \
-          --metric-name Errors \
-          --dimensions Name=FunctionName,Value=$FUNCTION_NAME \
-          --start-time $START_TIME \
-          --end-time $END_TIME \
-          --period 300 \
-          --statistics Sum \
-          --query 'Datapoints[0].Sum' \
-          --output text 2>/dev/null || echo "0")
-        
-        # Handle None/null response
-        if [ "$ERROR_COUNT" = "None" ] || [ "$ERROR_COUNT" = "null" ] || [ -z "$ERROR_COUNT" ]; then
-          ERROR_COUNT=0
-        fi
-        
-        echo "Lambda errors in last 5 minutes: $ERROR_COUNT"
-        
-        if [ "$ERROR_COUNT" -gt 0 ]; then
-          if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
-            echo "❌ CRITICAL: $ERROR_COUNT errors detected in production environment"
-            echo "Blocking API Gateway deployment due to Lambda errors"
-            exit 1
-          else
-            echo "⚠️  WARNING: $ERROR_COUNT errors detected in $ENVIRONMENT environment"
-            echo "💡 Proceeding with deployment but consider investigating"
-          fi
+        if [ "$FINDINGS" = "[]" ] || [ -z "$FINDINGS" ]; then
+          echo "✅ No security vulnerabilities found"
         else
-          echo "✅ No Lambda errors detected - safe to deploy API Gateway"
+          echo "🚨 Security Vulnerabilities Found:"
+          echo "$FINDINGS"
+          
+          # Get detailed remediation info
+          echo ""
+          echo "🔧 Remediation Details:"
+          aws inspector2 list-findings \
+            --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' \
+            --query 'findings[*].[packageVulnerabilityDetails.vulnerabilityId, packageVulnerabilityDetails.vulnerablePackages[0].name, packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion, remediation.recommendation.text]' \
+            --output text 2>/dev/null | while read cve package fixed_version remediation; do
+              echo "  • $cve ($package): Upgrade to $fixed_version"
+              if [ "$remediation" != "None Provided" ] && [ -n "$remediation" ]; then
+                echo "    Remediation: $remediation"
+              fi
+            done
+          
+          # Count critical and high severity issues
+          CRITICAL_COUNT=$(aws inspector2 list-findings \
+            --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}],"severity":[{"value":"CRITICAL","comparison":"EQUALS"}]}' \
+            --query 'length(findings)' --output text 2>/dev/null || echo "0")
+          
+          HIGH_COUNT=$(aws inspector2 list-findings \
+            --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}],"severity":[{"value":"HIGH","comparison":"EQUALS"}]}' \
+            --query 'length(findings)' --output text 2>/dev/null || echo "0")
+          
+          echo ""
+          echo "📊 Vulnerability Summary:"
+          echo "  CRITICAL: $CRITICAL_COUNT"
+          echo "  HIGH: $HIGH_COUNT"
+          
+          # Production environment - strict policy
+          if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo ""
+              echo "❌ DEPLOYMENT BLOCKED: Critical vulnerabilities found in production environment"
+              echo "🔧 Action Required: Upgrade Go version to fix vulnerabilities before production deployment"
+              exit 1
+            elif [ "$HIGH_COUNT" -gt 0 ]; then
+              echo ""
+              echo "⚠️  WARNING: High severity vulnerabilities found in production"
+              echo "🔧 Recommendation: Fix high severity issues for better security posture"
+            fi
+          else
+            # Non-production environments - warning only
+            if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
+              echo ""
+              echo "⚠️  WARNING: Security vulnerabilities found in $ENVIRONMENT environment"
+              echo "🔧 Action Required: Fix these vulnerabilities before promoting to production"
+              echo "💡 Suggested fix: Upgrade Go version to latest stable release"
+            fi
+          fi
         fi
         
     - name: Deploy API Gateway
