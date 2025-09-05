@@ -112,13 +112,13 @@ jobs:
       run: |
         cd cmd/$SERVICE_NAME/.terraform
         
-        # Get API Gateway URL and stage
-        API_URL=$(terraform output -raw api_gateway_url)
+        # Get API Gateway base URL and stage from config
+        API_BASE_URL=$(terraform output -raw api_gateway_url)
         STAGE_NAME=$(terraform output -raw api_gateway_stage 2>/dev/null || echo "latest")
         FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
         
-        # Construct health check URL
-        HEALTH_URL="$API_URL/$SERVICE_NAME/health"
+        # Construct correct health check URL with stage from service.yaml
+        HEALTH_URL="${API_BASE_URL%/v1}/$STAGE_NAME/$SERVICE_NAME/health"
         
         echo "🏥 Health check..."
         echo "📍 Health check URL: $HEALTH_URL"
@@ -140,7 +140,7 @@ jobs:
                 echo "🔄 Rolling back to version $PREVIOUS_VERSION..."
                 aws lambda update-alias --function-name $FUNCTION_NAME --name latest --function-version $PREVIOUS_VERSION
                 
-                API_GATEWAY_ID=$(echo $API_URL | cut -d'/' -f3 | cut -d'.' -f1)
+                API_GATEWAY_ID=$(echo $API_BASE_URL | cut -d'/' -f3 | cut -d'.' -f1)
                 aws apigateway create-deployment --rest-api-id $API_GATEWAY_ID --stage-name $STAGE_NAME
                 echo "✅ Rollback completed"
             else
