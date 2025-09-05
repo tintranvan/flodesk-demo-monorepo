@@ -103,3 +103,42 @@ jobs:
         else
           echo "⚠️ API Gateway ID not found, skipping deployment"
         fi
+        
+    - name: Health check with rollback
+      env:
+        SERVICE_NAME: ${{ github.event.inputs.service_name }}
+        ENVIRONMENT: ${{ github.event.inputs.environment }}
+      run: |
+        cd cmd/$SERVICE_NAME/.terraform
+        
+        # Get API Gateway URL
+        API_URL=$(terraform output -raw api_gateway_url)
+        FUNCTION_NAME="$ENVIRONMENT-$SERVICE_NAME"
+        
+        echo "🏥 Health check..."
+        CURRENT_VERSION=$(aws lambda get-alias --function-name $FUNCTION_NAME --name latest --query 'FunctionVersion' --output text)
+        sleep 5  # Wait for deployment to stabilize
+        
+        # Test health endpoint
+        HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $API_URL/$SERVICE_NAME/health || echo "000")
+        
+        if [ "$HEALTH_RESPONSE" != "200" ]; then
+            echo "❌ Health check failed (HTTP $HEALTH_RESPONSE)"
+            
+            # Get previous version
+            PREVIOUS_VERSION=$(aws lambda list-versions-by-function --function-name $FUNCTION_NAME --query 'Versions[?Version!=`$LATEST`]|[-2].Version' --output text)
+            
+            if [ "$PREVIOUS_VERSION" != "None" ] && [ "$PREVIOUS_VERSION" != "" ]; then
+                echo "🔄 Rolling back to version $PREVIOUS_VERSION..."
+                aws lambda update-alias --function-name $FUNCTION_NAME --name latest --function-version $PREVIOUS_VERSION
+                
+                API_GATEWAY_ID=$(echo $API_URL | cut -d'/' -f3 | cut -d'.' -f1)
+                aws apigateway create-deployment --rest-api-id $API_GATEWAY_ID --stage-name latest
+                echo "✅ Rollback completed"
+            else
+                echo "⚠️ No previous version available for rollback"
+            fi
+            exit 1
+        else
+            echo "✅ Health check passed (HTTP $HEALTH_RESPONSE)"
+        fi
