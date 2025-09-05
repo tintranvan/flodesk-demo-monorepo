@@ -308,15 +308,6 @@ jobs:
                 if [ "$DEPLOYMENT_STATUS" = "COMPLETED" ]; then
                     echo "✅ Health check passed ($SERVICE_STATUS/$DESIRED_COUNT tasks running)"
                     echo "✅ Deployment completed successfully"
-                    
-                    # Test SQS queue processing
-                    QUEUE_URL=$(terraform output -raw queue_url 2>/dev/null || echo "")
-                    if [ -n "$QUEUE_URL" ]; then
-                        echo "📤 Testing queue processing..."
-                        aws sqs send-message --queue-url $QUEUE_URL --message-body '{"test": "deployment-verification", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}'
-                        echo "✅ Test message sent to queue"
-                    fi
-                    
                     echo "🎉 Worker deployment completed successfully!"
                     break
                 else
