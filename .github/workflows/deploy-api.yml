@@ -42,8 +42,14 @@ jobs:
       id: detect
       if: github.event_name == 'push'
       run: |
-        # Get changed files in this push
-        CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
+        # Get changed files in this push (handle first push)
+        if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+          # First push - check all API services
+          CHANGED_FILES=$(find cmd/api-* -name "*.go" -o -name "*.yaml" 2>/dev/null | head -10)
+        else
+          # Regular push - get diff
+          CHANGED_FILES=$(git diff --name-only ${{ github.event.before }}..${{ github.event.after }})
+        fi
         echo "Changed files: $CHANGED_FILES"
         
         # Find changed API services
@@ -52,6 +58,9 @@ jobs:
         
         # Set service name for auto trigger (use first changed service)
         SERVICE_NAME=$(echo "$CHANGED_SERVICES" | head -1)
+        if [ -z "$SERVICE_NAME" ]; then
+          SERVICE_NAME="api-svc-a"  # Default fallback
+        fi
         echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
         echo "environment=dev" >> $GITHUB_OUTPUT
         
