@@ -63,9 +63,16 @@ jobs:
           echo "SERVICE_NAME=${{ github.event.inputs.service_name }}" >> $GITHUB_ENV
           echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
         else
-          echo "SERVICE_NAME=${{ steps.detect.outputs.service_name }}" >> $GITHUB_ENV
+          SERVICE_NAME="${{ steps.detect.outputs.service_name }}"
+          if [ -z "$SERVICE_NAME" ]; then
+            echo "❌ No API service detected in changes - skipping deployment"
+            exit 0
+          fi
+          echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "ENVIRONMENT=${{ steps.detect.outputs.environment }}" >> $GITHUB_ENV
         fi
+        
+        echo "🚀 Deploying: $SERVICE_NAME to $ENVIRONMENT"
       
     - name: Checkout infra repo
       uses: actions/checkout@v4
