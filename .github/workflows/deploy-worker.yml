@@ -49,11 +49,33 @@ jobs:
         CHANGED_SERVICES=$(echo "$CHANGED_FILES" | grep '^cmd/worker-' | cut -d'/' -f2 | sort -u)
         echo "Changed services: $CHANGED_SERVICES"
         
-        # Set service name for auto trigger
-        SERVICE_NAME=$(echo "$CHANGED_SERVICES" | head -1)
-        if [ -z "$SERVICE_NAME" ]; then
-          SERVICE_NAME="worker-c"  # Default fallback
+        # Smart service detection
+        SERVICE_COUNT=$(echo "$CHANGED_SERVICES" | wc -w)
+        
+        if [ "$SERVICE_COUNT" -eq 1 ]; then
+          # Single service changed - use it
+          SERVICE_NAME="$CHANGED_SERVICES"
+        elif [ "$SERVICE_COUNT" -gt 1 ]; then
+          # Multiple services - check commit message for hints
+          COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+          echo "Commit message: $COMMIT_MSG"
+          
+          # Look for service name in commit message
+          if echo "$COMMIT_MSG" | grep -qi "worker-d"; then
+            SERVICE_NAME="worker-d"
+          elif echo "$COMMIT_MSG" | grep -qi "worker-c"; then
+            SERVICE_NAME="worker-c"
+          else
+            # No hint in commit - use first alphabetically
+            SERVICE_NAME=$(echo "$CHANGED_SERVICES" | tr ' ' '\n' | sort | head -1)
+          fi
+        else
+          # No worker services changed - skip deployment
+          echo "No worker services detected in changes - skipping deployment"
+          SERVICE_NAME=""
         fi
+        
+        echo "Selected service: $SERVICE_NAME"
         echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
         echo "environment=dev" >> $GITHUB_OUTPUT
         
@@ -65,20 +87,20 @@ jobs:
         else
           SERVICE_NAME="${{ steps.detect.outputs.service_name }}"
           if [ -z "$SERVICE_NAME" ] || [ "$SERVICE_NAME" = "" ]; then
-            echo "❌ No worker service detected in changes - skipping deployment"
+            echo " No worker service detected in changes - skipping deployment"
             exit 0
           fi
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "ENVIRONMENT=dev" >> $GITHUB_ENV
         fi
         
-        echo "🚀 Deploying: $SERVICE_NAME to $ENVIRONMENT"
+        echo " Deploying: $SERVICE_NAME to $ENVIRONMENT"
       
     - name: Checkout infra repo
       uses: actions/checkout@v4
       with:
         repository: tintranvan/flodesk-demo-infra
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.MYPAT }}
         path: flodesk-infra
       
     - name: Configure AWS credentials
@@ -96,7 +118,7 @@ jobs:
         SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
         ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
-        echo "🔨 Building Docker image with cache..."
+        echo " Building Docker image with cache..."
         
         # Generate image tag with timestamp
         IMAGE_TAG="v$(date +%Y%m%d_%H%M%S)_$(git rev-parse --short HEAD 2>/dev/null || echo 'local')"
@@ -128,32 +150,32 @@ jobs:
         SERVICE_NAME: ${{ env.SERVICE_NAME }}
         ENVIRONMENT: ${{ env.ENVIRONMENT }}
       run: |
-        echo "🔍 Docker Scout vulnerability scanning..."
+        echo " Docker Scout vulnerability scanning..."
         
         LOCAL_IMAGE="$SERVICE_NAME:$IMAGE_TAG"
-        echo "🔍 Scanning image: $LOCAL_IMAGE"
+        echo " Scanning image: $LOCAL_IMAGE"
         
         # Login to Docker Hub for Scout access
         if [ -n "${{ secrets.DOCKERHUB_USERNAME }}" ] && [ -n "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
-          echo "🔐 Logging into Docker Hub..."
+          echo " Logging into Docker Hub..."
           echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
           
-          echo "📥 Installing Docker Scout..."
+          echo " Installing Docker Scout..."
           curl -sSfL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
           
-          echo "📦 Checking vulnerable packages..."
+          echo " Checking vulnerable packages..."
           docker scout cves --format only-packages --only-vuln-packages --only-severity critical,high $LOCAL_IMAGE || true
           
           echo "==================================================================================================================="
-          echo "💡 Security recommendations:"
+          echo " Security recommendations:"
           docker scout recommendations $LOCAL_IMAGE || true
           
           echo "==================================================================================================================="
           if [ "$ENVIRONMENT" = "dev" ]; then
-            echo "🔍 Development environment - showing all critical/high vulnerabilities:"
+            echo " Development environment - showing all critical/high vulnerabilities:"
             docker scout cves --only-severity critical,high $LOCAL_IMAGE || true
           else
-            echo "🔍 Production environment - strict vulnerability check:"
+            echo " Production environment - strict vulnerability check:"
             docker scout cves --only-severity critical,high $LOCAL_IMAGE || true
             # Note: Removed --exit-code to prevent blocking deployment
           fi
@@ -161,9 +183,9 @@ jobs:
           
           echo "✅ Docker Scout scan completed"
         else
-          echo "⚠️  WARNING: Docker Hub credentials not configured"
-          echo "💡 Add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets for vulnerability scanning"
-          echo "📊 Running basic image analysis instead..."
+          echo "  WARNING: Docker Hub credentials not configured"
+          echo " Add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN secrets for vulnerability scanning"
+          echo " Running basic image analysis instead..."
           docker image inspect $LOCAL_IMAGE --format '{{.Size}}' | awk '{print "Image size: " $1/1024/1024 " MB"}'
         fi
         
@@ -172,7 +194,7 @@ jobs:
         SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
         ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
-        echo "📦 Pushing to ECR..."
+        echo " Pushing to ECR..."
         
         # Login to ECR
         aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 647272350116.dkr.ecr.us-east-1.amazonaws.com
@@ -206,7 +228,7 @@ jobs:
         SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
         ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
-        echo "🏗️ Deploying infrastructure..."
+        echo " Deploying infrastructure..."
         cd cmd/$SERVICE_NAME/.terraform
         
         # Replace image tag in terraform with actual tag
@@ -226,13 +248,13 @@ jobs:
         SERVICE_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.service_name || env.SERVICE_NAME }}
         ENVIRONMENT: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || env.ENVIRONMENT }}
       run: |
-        echo "🔄 Starting ECS rolling deployment..."
+        echo " Starting ECS rolling deployment..."
         
         SERVICE_NAME_FULL="$ENVIRONMENT-$SERVICE_NAME"
         CLUSTER_NAME="flodesk-$ENVIRONMENT-cluster"
         
         # Get current task definition for rollback
-        echo "📋 Saving current state for rollback..."
+        echo " Saving current state for rollback..."
         PREVIOUS_TASK_DEF=$(aws ecs describe-services \
             --cluster $CLUSTER_NAME \
             --services $SERVICE_NAME_FULL \
@@ -252,7 +274,7 @@ jobs:
         echo "✅ ECS deployment initiated"
         
         # Health check with rollback capability
-        echo "🏥 Health check with rollback capability..."
+        echo " Health check with rollback capability..."
         
         for i in {1..30}; do  # 5 minutes max (30 * 10s)
             echo "  Health check attempt $i/30..."
@@ -284,7 +306,7 @@ jobs:
                 if [ "$DEPLOYMENT_STATUS" = "COMPLETED" ]; then
                     echo "✅ Health check passed ($SERVICE_STATUS/$DESIRED_COUNT tasks running)"
                     echo "✅ Deployment completed successfully"
-                    echo "🎉 Worker deployment completed successfully!"
+                    echo "Worker deployment completed successfully!"
                     break
                 else
                     echo "  Deployment status: $DEPLOYMENT_STATUS ($SERVICE_STATUS/$DESIRED_COUNT tasks)"
@@ -298,7 +320,7 @@ jobs:
                 echo "❌ Health check failed after 30 attempts"
                 
                 if [ ! -z "$PREVIOUS_TASK_DEF" ] && [ "$PREVIOUS_TASK_DEF" != "None" ]; then
-                    echo "🔄 Rolling back to previous task definition..."
+                    echo " Rolling back to previous task definition..."
                     
                     aws ecs update-service \
                         --cluster $CLUSTER_NAME \

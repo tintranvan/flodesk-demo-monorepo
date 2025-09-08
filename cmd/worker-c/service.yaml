@@ -29,7 +29,7 @@ queues:
 
 # Auto-scaling configuration
 scaling:
-  # Priority-based multi-metric scaling (check từ trên xuống)
+  # Priority-based multi-metric scaling
   metrics:
     - name: sqs_queue_depth       # Priority 1: Workload first
       target_value: 5
@@ -50,7 +50,7 @@ scaling:
   # Circuit breaker for defensive scaling
   circuit_breaker:
     enabled: true
-    failure_threshold: 3        # 3 failed tasks liên tiếp
+    failure_threshold: 3        # 3 failed tasks
     recovery_time: 180s         # 3 phút recovery
     fallback_capacity: 1        # Scale down to 1 task khi fail
     health_check_interval: 30s  # Check task health every 30s
@@ -97,7 +97,7 @@ environments:
       memory: 1024
       cpu: 512
       desired_count: 3
-      max_count: 50  # Tăng max để handle burst
+      max_count: 50  # Tng max  handle burst
     scaling:
       metrics:
         - name: sqs_queue_depth

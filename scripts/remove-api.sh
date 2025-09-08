@@ -9,7 +9,7 @@ fi
 SERVICE_NAME=$1
 ENVIRONMENT=$2
 
-echo "⚠️  WARNING: This will destroy $ENVIRONMENT-$SERVICE_NAME and all its resources!"
+echo "  WARNING: This will destroy $ENVIRONMENT-$SERVICE_NAME and all its resources!"
 echo "Resources to be destroyed:"
 echo "  - Lambda Function"
 echo "  - API Gateway Routes"
@@ -25,7 +25,7 @@ fi
 
 cd cmd/$SERVICE_NAME/.terraform
 
-echo "🗑️  Destroying infrastructure..."
+echo "  Destroying infrastructure..."
 terraform destroy -auto-approve
 
-echo "✅ $ENVIRONMENT-$SERVICE_NAME removed successfully"
+echo " $ENVIRONMENT-$SERVICE_NAME removed successfully"
