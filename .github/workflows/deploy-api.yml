@@ -87,14 +87,14 @@ jobs:
         else
           SERVICE_NAME="${{ steps.detect.outputs.service_name }}"
           if [ -z "$SERVICE_NAME" ]; then
-            echo "❌ No API service detected in changes - skipping deployment"
+            echo " No API service detected in changes - skipping deployment"
             exit 0
           fi
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "ENVIRONMENT=${{ steps.detect.outputs.environment }}" >> $GITHUB_ENV
         fi
         
-        echo "🚀 Deploying: $SERVICE_NAME to $ENVIRONMENT"
+        echo " Deploying: $SERVICE_NAME to $ENVIRONMENT"
       
     - name: Checkout infra repo
       uses: actions/checkout@v4
@@ -168,7 +168,7 @@ jobs:
         terraform init
         terraform plan -out=tfplan
         terraform apply -auto-approve tfplan
-        echo "✅ Infrastructure deployed"
+        echo " Infrastructure deployed"
         
     - name: SCA - Runtime Quality Gate
       env:
@@ -181,7 +181,7 @@ jobs:
         ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
         FUNCTION_ARN="arn:aws:lambda:us-east-1:$ACCOUNT_ID:function:$FUNCTION_NAME"
         
-        echo "🔍 Checking Lambda security vulnerabilities..."
+        echo " Checking Lambda security vulnerabilities..."
         echo "Function ARN: $FUNCTION_ARN"
         
         # Test if function exists in Inspector
@@ -200,8 +200,8 @@ jobs:
         
         # Check if we have Inspector permissions
         if echo "$INSPECTOR_TEST" | grep -q "AccessDenied\|UnauthorizedOperation"; then
-          echo "⚠️  WARNING: No Inspector permissions - skipping vulnerability scan"
-          echo "✅ Proceeding with deployment (Inspector scan skipped)"
+          echo "  WARNING: No Inspector permissions - skipping vulnerability scan"
+          echo " Proceeding with deployment (Inspector scan skipped)"
         else
         
         # Get Inspector findings using the exact ARN that Inspector returned
@@ -216,19 +216,19 @@ jobs:
           --query 'length(findings)' --output text 2>/dev/null || echo "0")
         
         if [ "$FINDINGS_COUNT" = "0" ] || [ -z "$FINDINGS_COUNT" ]; then
-          echo "✅ No security vulnerabilities found"
+          echo " No security vulnerabilities found"
         else
           echo "Security Vulnerabilities Found:"
           echo "$FINDINGS"
           
           # Get detailed remediation info
           echo ""
-          echo "🔧 Remediation Details:"
+          echo " Remediation Details:"
           aws inspector2 list-findings \
             --filter-criteria '{"resourceId":[{"value":"'$FUNCTION_ARN'","comparison":"EQUALS"}],"resourceType":[{"value":"AWS_LAMBDA_FUNCTION","comparison":"EQUALS"}]}' \
             --query 'findings[*].[packageVulnerabilityDetails.vulnerabilityId, packageVulnerabilityDetails.vulnerablePackages[0].name, packageVulnerabilityDetails.vulnerablePackages[0].fixedInVersion, remediation.recommendation.text]' \
             --output text 2>/dev/null | while read cve package fixed_version remediation; do
-              echo "  • $cve ($package): Upgrade to $fixed_version"
+              echo "   $cve ($package): Upgrade to $fixed_version"
               if [ "$remediation" != "None Provided" ] && [ -n "$remediation" ]; then
                 echo "    Remediation: $remediation"
               fi
@@ -244,7 +244,7 @@ jobs:
             --query 'length(findings)' --output text 2>/dev/null || echo "0")
           
           echo ""
-          echo "📊 Vulnerability Summary:"
+          echo " Vulnerability Summary:"
           if [ "$CRITICAL_COUNT" -gt 0 ]; then
             echo -e "  \033[1;31mCRITICAL: $CRITICAL_COUNT\033[0m"
           else
@@ -260,19 +260,19 @@ jobs:
           if [ "$ENVIRONMENT" = "prod" ] || [ "$ENVIRONMENT" = "production" ]; then
             if [ "$CRITICAL_COUNT" -gt 0 ]; then
               echo ""
-              echo "❌ DEPLOYMENT BLOCKED: Critical vulnerabilities found in production environment"
+              echo " DEPLOYMENT BLOCKED: Critical vulnerabilities found in production environment"
               echo "Action Required: Upgrade Go version to fix vulnerabilities before production deployment"
               exit 1
             elif [ "$HIGH_COUNT" -gt 0 ]; then
               echo ""
-              echo "⚠️  WARNING: High severity vulnerabilities found in production"
+              echo "  WARNING: High severity vulnerabilities found in production"
               echo "Recommendation: Fix high severity issues for better security posture"
             fi
           else
             # Non-production environments - warning only
             if [ "$CRITICAL_COUNT" -gt 0 ] || [ "$HIGH_COUNT" -gt 0 ]; then
               echo ""
-              echo "⚠️  WARNING: Security vulnerabilities found in $ENVIRONMENT environment"
+              echo "  WARNING: Security vulnerabilities found in $ENVIRONMENT environment"
               echo "Action Required: Fix these vulnerabilities before promoting to production"
             fi
           fi
@@ -294,9 +294,9 @@ jobs:
           aws apigateway create-deployment \
             --rest-api-id $API_GATEWAY_ID \
             --stage-name $STAGE_NAME
-          echo "✅ API Gateway deployed to stage: $STAGE_NAME"
+          echo " API Gateway deployed to stage: $STAGE_NAME"
         else
-          echo "⚠️ API Gateway ID not found, skipping deployment"
+          echo " API Gateway ID not found, skipping deployment"
         fi
         
     - name: Health check with rollback
@@ -324,24 +324,24 @@ jobs:
         HEALTH_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL || echo "000")
         
         if [ "$HEALTH_RESPONSE" != "200" ]; then
-            echo "❌ Health check failed (HTTP $HEALTH_RESPONSE)"
+            echo " Health check failed (HTTP $HEALTH_RESPONSE)"
             echo "Manual test: curl -v $HEALTH_URL"
             
             # Get previous version
             PREVIOUS_VERSION=$(aws lambda list-versions-by-function --function-name $FUNCTION_NAME --query 'Versions[?Version!=`$LATEST`]|[-2].Version' --output text)
             
             if [ "$PREVIOUS_VERSION" != "None" ] && [ "$PREVIOUS_VERSION" != "" ]; then
-                echo "🔄 Rolling back to version $PREVIOUS_VERSION..."
+                echo " Rolling back to version $PREVIOUS_VERSION..."
                 aws lambda update-alias --function-name $FUNCTION_NAME --name latest --function-version $PREVIOUS_VERSION
                 
                 API_GATEWAY_ID=$(echo $API_BASE_URL | cut -d'/' -f3 | cut -d'.' -f1)
                 aws apigateway create-deployment --rest-api-id $API_GATEWAY_ID --stage-name $STAGE_NAME
-                echo "✅ Rollback completed"
+                echo " Rollback completed"
             else
-                echo "⚠️ No previous version available for rollback"
+                echo " No previous version available for rollback"
             fi
             exit 1
         else
-            echo "✅ Health check passed (HTTP $HEALTH_RESPONSE)"
+            echo " Health check passed (HTTP $HEALTH_RESPONSE)"
             echo "Health endpoint working: $HEALTH_URL"
         fi
