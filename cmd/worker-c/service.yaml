@@ -64,8 +64,8 @@ scaling:
 environments:
   dev:
     resources:
-      desired_count: 1
-      max_count: 3
+      desired_count: 0
+      max_count: 5
     scaling:
       metrics:
         - name: sqs_queue_depth

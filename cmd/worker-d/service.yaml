@@ -64,7 +64,7 @@ scaling:
 environments:
   dev:
     resources:
-      desired_count: 1
+      desired_count: 0
       max_count: 3
     scaling:
       metrics:
