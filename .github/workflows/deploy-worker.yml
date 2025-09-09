@@ -36,7 +36,9 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+      with:
+        fetch-depth: 2  # Fetch at least 2 commits for comparison
+        
     - name: Detect changed services (for auto trigger)
       id: detect
       if: github.event_name == 'push'
