@@ -41,8 +41,8 @@ jobs:
       id: detect
       if: github.event_name == 'push'
       run: |
-        # Get changed files from last commit
-        CHANGED_FILES=$(git show --name-only --pretty=format: HEAD | grep -v '^$')
+        # Get changed files from last commit only
+        CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r HEAD)
         echo "DEBUG: Changed files: $CHANGED_FILES"
         
         # Find changed worker services
