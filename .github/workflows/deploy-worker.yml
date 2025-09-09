@@ -43,39 +43,44 @@ jobs:
       run: |
         # Get changed files from last commit
         CHANGED_FILES=$(git show --name-only --pretty=format: HEAD | grep -v '^$')
-        echo "Changed files: $CHANGED_FILES"
+        echo "DEBUG: Changed files: $CHANGED_FILES"
         
         # Find changed worker services
         CHANGED_SERVICES=$(echo "$CHANGED_FILES" | grep '^cmd/worker-' | cut -d'/' -f2 | sort -u)
-        echo "Changed services: $CHANGED_SERVICES"
+        echo "DEBUG: Changed services: $CHANGED_SERVICES"
         
         # Smart service detection
         SERVICE_COUNT=$(echo "$CHANGED_SERVICES" | wc -w)
+        echo "DEBUG: Service count: $SERVICE_COUNT"
         
         if [ "$SERVICE_COUNT" -eq 1 ]; then
           # Single service changed - use it
           SERVICE_NAME="$CHANGED_SERVICES"
+          echo "DEBUG: Single service detected: $SERVICE_NAME"
         elif [ "$SERVICE_COUNT" -gt 1 ]; then
           # Multiple services - check commit message for hints
           COMMIT_MSG=$(git log -1 --pretty=format:"%s")
-          echo "Commit message: $COMMIT_MSG"
+          echo "DEBUG: Commit message: $COMMIT_MSG"
           
           # Look for service name in commit message
           if echo "$COMMIT_MSG" | grep -qi "worker-d"; then
             SERVICE_NAME="worker-d"
+            echo "DEBUG: Found worker-d in commit message"
           elif echo "$COMMIT_MSG" | grep -qi "worker-c"; then
             SERVICE_NAME="worker-c"
+            echo "DEBUG: Found worker-c in commit message"
           else
             # No hint in commit - use first alphabetically
             SERVICE_NAME=$(echo "$CHANGED_SERVICES" | tr ' ' '\n' | sort | head -1)
+            echo "DEBUG: No hint in commit, using first alphabetically: $SERVICE_NAME"
           fi
         else
           # No worker services changed - skip deployment
-          echo "No worker services detected in changes - skipping deployment"
+          echo "DEBUG: No worker services detected in changes - skipping deployment"
           SERVICE_NAME=""
         fi
         
-        echo "Selected service: $SERVICE_NAME"
+        echo "DEBUG: Final selected service: $SERVICE_NAME"
         echo "service_name=$SERVICE_NAME" >> $GITHUB_OUTPUT
         echo "environment=dev" >> $GITHUB_OUTPUT
         
@@ -84,17 +89,20 @@ jobs:
         if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
           echo "SERVICE_NAME=${{ github.event.inputs.service_name }}" >> $GITHUB_ENV
           echo "ENVIRONMENT=${{ github.event.inputs.environment }}" >> $GITHUB_ENV
+          echo "DEBUG: Manual trigger - SERVICE_NAME=${{ github.event.inputs.service_name }}"
         else
           SERVICE_NAME="${{ steps.detect.outputs.service_name }}"
+          echo "DEBUG: Auto trigger - detected SERVICE_NAME=$SERVICE_NAME"
           if [ -z "$SERVICE_NAME" ] || [ "$SERVICE_NAME" = "" ]; then
-            echo " No worker service detected in changes - skipping deployment"
+            echo "DEBUG: No worker service detected in changes - skipping deployment"
             exit 0
           fi
           echo "SERVICE_NAME=$SERVICE_NAME" >> $GITHUB_ENV
           echo "ENVIRONMENT=dev" >> $GITHUB_ENV
+          echo "DEBUG: Set SERVICE_NAME=$SERVICE_NAME, ENVIRONMENT=dev"
         fi
         
-        echo " Deploying: $SERVICE_NAME to $ENVIRONMENT"
+        echo "DEBUG: Deploying: $SERVICE_NAME to $ENVIRONMENT"
       
     - name: Checkout infra repo
       uses: actions/checkout@v4
