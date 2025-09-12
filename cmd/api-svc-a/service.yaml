@@ -2,7 +2,7 @@ name: api-svc-a
 type: api
 deployment: lambda
 stage: latest
-infra_tag: main # Could be at version
+infra_tag: v1.2 # Could be at version
 
 # Base configuration
 resources:
