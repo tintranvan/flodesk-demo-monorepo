@@ -14,7 +14,7 @@ WORKDIR /app/cmd/${SERVICE_NAME}
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -ldflags="-s -w" -o worker .
 
 # Final stage - Google Distroless
-FROM gcr.io/distroless/static-debian12:latest
+FROM gcr.io/distroless/static-debian12:nonroot-611de801bda35a3ab8eff29b77f11c41d1654766
 
 WORKDIR /
 
